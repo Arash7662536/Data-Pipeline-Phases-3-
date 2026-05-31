@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "farsi-asr-dataset"
+version = "0.1.0"
+description = "Build Whisper-ready Farsi STT training data from dual-channel call recordings + Gemini transcripts"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "soundfile>=0.12", "PyYAML>=6.0"]
+
+[project.optional-dependencies]
+align = ["whisperx>=3.1"]
+asr = ["torch>=2.1", "transformers>=4.40", "accelerate>=0.30"]
+hf = ["datasets>=2.19"]
+audio = ["librosa>=0.10"]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,54 @@
+# Defaults tuned for: Whisper large-v3 + ~300h + existing Farsi checkpoint.
+# Every key here mirrors config.py; omit any to keep its default.
+
+audio:
+  target_sr: 16000        # telephony is usually 8k -> upsample to match Whisper
+  n_mels: 128             # large-v3 uses 128 mel bins (v2 used 80) — match your checkpoint
+  edge_pad_s: 0.15
+
+chunk:
+  min_s: 3.0
+  max_s: 28.0             # ~2s headroom under Whisper's 30s window
+  target_mean_s: 15.0
+  silence_cut_min_s: 0.30
+  merge_gap_max_s: 1.5
+
+overlap:
+  keep: true              # channel split makes the target speaker dominant
+  max_fraction_of_dataset: 0.12   # cap crosstalk chunks at ~10-15%
+  drop_if_overlap_fraction_above: 0.6
+
+confidence:
+  use_forced_alignment: true
+  use_second_asr: true
+  w_align: 0.5
+  w_agree: 0.5
+  accept_at: 0.85         # auto-accept, full loss weight
+  review_below: 0.60      # below this -> human review, not trained raw
+  downweight_loss: 0.5    # middle tier loss weight
+
+filt:
+  require_audio_quality_good: false
+  max_silence_ratio: 0.55
+  cps_min: 3.0
+  cps_max: 28.0
+  min_persian_char_ratio: 0.55
+  min_chars: 2
+
+split:
+  test_fraction: 0.05     # held out BY CALL
+  gold_oversample: 3      # 2-4x; oversample the clean anchor
+  seed: 1337
+
+second_asr:
+  enabled: true
+  model_id: "openai/whisper-large-v3"   # <-- POINT THIS AT YOUR FARSI CHECKPOINT
+  device: "cuda"
+  language: "fa"
+  batch_size: 8
+
+align:
+  enabled: true
+  backend: "whisperx"     # whisperx | torchaudio | none
+  device: "cuda"
+  language: "fa"
