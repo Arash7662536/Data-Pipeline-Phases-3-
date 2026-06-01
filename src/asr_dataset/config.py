@@ -23,6 +23,7 @@ class ChunkConfig:
     target_mean_s: float = 12.0
     silence_cut_min_s: float = 0.30  # only cut at silences >= this
     merge_gap_max_s: float = 1.5     # merge same-speaker turns if gap below this
+    pause_cut_s: float = 0.4         # forced-align chunker cuts at word gaps >= this
     # Coarse timestamps pad turns with silence; trim ONLY the leading/trailing
     # silence (never internal audio, never into neighbours) so words aren't lost.
     trim_silence_edges: bool = True
@@ -95,6 +96,20 @@ class AlignConfig:
 
 
 @dataclass
+class ForcedAlignConfig:
+    """CTC forced alignment (build_aligned_dataset.py). Recomputes word-level
+    timestamps from the audio instead of trusting Gemini's coarse ones."""
+    enabled: bool = True
+    model_id: str = "MahmoudAshraf/mms-300m-1130-forced-aligner"
+    device: str = "cuda"             # auto-downgrades to cpu if no GPU
+    dtype: str = "float16"           # float16 on gpu, float32 on cpu
+    language: str = "fas"            # ISO-639-3 for Persian (MMS code)
+    romanize: bool = True            # MMS aligns via uroman for non-Latin scripts
+    batch_size: int = 8
+    min_word_score: float = 0.0      # drop leading/trailing words below this before chunking
+
+
+@dataclass
 class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     chunk: ChunkConfig = field(default_factory=ChunkConfig)
@@ -104,6 +119,7 @@ class Config:
     split: SplitConfig = field(default_factory=SplitConfig)
     second_asr: SecondASRConfig = field(default_factory=SecondASRConfig)
     align: AlignConfig = field(default_factory=AlignConfig)
+    forced_align: ForcedAlignConfig = field(default_factory=ForcedAlignConfig)
 
     def to_dict(self) -> dict:
         return asdict(self)

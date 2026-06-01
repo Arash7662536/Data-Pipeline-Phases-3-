@@ -60,3 +60,15 @@ align:
   backend: "whisperx"     # whisperx | torchaudio | none
   device: "cuda"
   language: "fa"
+
+# Forced-alignment chunker (scripts/build_aligned_dataset.py) — the robust path.
+# Recomputes word timings from the audio, ignoring Gemini's coarse timestamps.
+forced_align:
+  enabled: true
+  model_id: "MahmoudAshraf/mms-300m-1130-forced-aligner"
+  device: "cuda"          # auto-falls back to cpu if no GPU
+  dtype: "float16"        # float16 on gpu, float32 on cpu
+  language: "fas"         # ISO-639-3 for Persian (MMS code)
+  romanize: true          # MMS aligns non-Latin scripts via uroman
+  batch_size: 8
+  min_word_score: 0.0     # strip edge words below this align score (0 = off)
