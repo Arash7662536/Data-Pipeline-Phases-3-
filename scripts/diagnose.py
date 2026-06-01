@@ -31,6 +31,8 @@ def main():
     ap.add_argument("--wav")
     ap.add_argument("--dir")
     ap.add_argument("--config", default=None)
+    ap.add_argument("--dump", default=None,
+                    help="write kept clips + a text sidecar here to check alignment by ear")
     args = ap.parse_args()
 
     if args.dir:
@@ -96,15 +98,14 @@ def main():
     chunks = chunking.build_chunks(str(jp.stem), segments, channels, sr, spk_ch, cfg)
     print(f"=== CHUNKS BUILT: {len(chunks)} (from {len(segments)} segments) ===")
     audio_quality = (call.get("raw_response", {}) or {}).get("audio_quality")
+    dump = Path(args.dump) if args.dump else None
+    sidecar = []
     kept = 0
     for k, ch in enumerate(chunks):
-        if ch.speech_spans:
-            clip = io.slice_spans(channels, ch.channel, sr, ch.speech_spans,
-                                  edge_pad_s=cfg.audio.edge_pad_s,
-                                  max_gap_s=cfg.chunk.max_internal_silence_s)
-        else:
-            clip = io.slice_channel(channels, ch.channel, sr, ch.start, ch.end,
-                                    pad_s=cfg.audio.edge_pad_s)
+        clip = io.slice_channel(channels, ch.channel, sr, ch.start, ch.end,
+                                pad_s=cfg.audio.edge_pad_s)
+        if cfg.chunk.trim_silence_edges:
+            clip = io.trim_silence_edges(clip, sr, margin_s=cfg.chunk.trim_margin_s)
         chunking.fill_clip_metrics(ch, clip, sr)
         reason = filters.check(ch, cfg, audio_quality=audio_quality)
         status = "KEEP" if reason is None else f"DROP[{reason}]"
@@ -115,10 +116,17 @@ def main():
               f"extent {ch.start:5.1f}-{ch.end:5.1f}s -> clip {ch.effective_duration:4.1f}s "
               f"sil={ch.silence_ratio:.0%} dB={db(clip):5.1f} "
               f"cps={ch.chars_per_sec or 0:4.1f} segs={len(ch.segment_indices)} | {preview}")
+        if dump is not None and reason is None:
+            ap = dump / f"chunk_{k:02d}_{ch.speaker}.wav"
+            io.write_wav(ap, clip, sr)
+            sidecar.append(f"chunk_{k:02d}_{ch.speaker}.wav\t{ch.text}")
+    if dump is not None:
+        (dump / "_text.tsv").write_text("\n".join(sidecar), encoding="utf-8")
+        print(f"\n  wrote {len(sidecar)} clips + _text.tsv to {dump}  (listen vs text)")
     print(f"\n  => {kept}/{len(chunks)} chunks would be kept")
     print(f"\n  config knobs: min_s={cfg.chunk.min_s} target_mean_s={cfg.chunk.target_mean_s} "
-          f"merge_gap_max_s={cfg.chunk.merge_gap_max_s} use_vad={cfg.chunk.use_vad_boundaries} "
-          f"vad_pad_s={cfg.chunk.vad_pad_s} max_internal_silence_s={cfg.chunk.max_internal_silence_s}")
+          f"merge_gap_max_s={cfg.chunk.merge_gap_max_s} trim_edges={cfg.chunk.trim_silence_edges} "
+          f"trim_margin_s={cfg.chunk.trim_margin_s} max_silence_ratio={cfg.filt.max_silence_ratio}")
 
 
 if __name__ == "__main__":

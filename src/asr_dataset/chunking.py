@@ -1,19 +1,21 @@
-"""Chunking: turn Gemini's short diarization turns into Whisper-ready training
-clips. Strategy (per channel, per speaker):
+"""Chunking: turn Gemini's diarization turns into Whisper-ready training clips.
 
+The transcript timestamps are CONTIGUOUS, coarse (rounded to ~1s) turn
+boundaries — they partition the timeline by speaker, they are not tight speech
+bounds. But the channels are cleanly separated (one speaker per channel), so a
+window on the speaker's own channel contains only that speaker.
+
+Strategy (per channel, per speaker):
   1. Take that speaker's turns in time order.
-  2. Greedily merge adjacent turns into a growing group while:
-       - the merged duration stays <= max_s, and
-       - the inter-turn gap is small (merge_gap_max_s).
-  3. Close a group when it reaches ~target_mean_s or merging would exceed max_s.
-  4. Snap the group's audio boundaries to REAL speech using VAD on the speaker's
-     (clean) channel, collapsing the dead air that Gemini's coarse, ~1s-rounded
-     timestamps leave behind. The text is the merged turns; the audio is only the
-     speech, so the two line up.
+  2. Greedily merge adjacent turns into a window while the merged duration stays
+     <= max_s, the inter-turn gap is small, and we're under ~target_mean_s.
+  3. Slice the speaker's channel over [window_start, window_end] AS-IS.
 
-This produces multi-turn, continuous-speech windows instead of silence-padded
-windows, which is what keeps large-v3's long-form recall intact while fixing the
-"too_silent" drops and audio/text drift you get from trusting coarse timestamps.
+We deliberately do NOT pad into neighbouring turns or drop "internal silence":
+both corrupt the audio<->text correspondence (extra / missing words). The only
+cleanup is conservative leading/trailing silence trimming, done later in the
+pipeline. Genuinely mislabeled turns (coarse timestamps that drift off the
+audio) are caught downstream by the alignment + second-ASR confidence tiers.
 """
 from __future__ import annotations
 
@@ -38,30 +40,20 @@ def build_chunks(
             continue
         by_speaker.setdefault(seg.speaker, []).append((i, seg))
 
-    # Run VAD once per channel we actually use (not once per chunk).
-    channel_speech: dict[int, list[tuple[float, float]]] = {}
-    if cfg.chunk.use_vad_boundaries:
-        for ch in {speaker_channel.get(sp, 0) for sp in by_speaker}:
-            if 0 <= ch < channels.shape[0]:
-                channel_speech[ch] = vad.speech_timestamps(channels[ch], sr)
-
     chunks: list[Chunk] = []
     for speaker, items in by_speaker.items():
         ch = speaker_channel.get(speaker, 0)
         items.sort(key=lambda x: x[1].start)
         for group in _group_speaker_turns(items, cfg):
-            spans = _vad_spans(channel_speech.get(ch), group, cfg)
-            start, end = spans[0][0], spans[-1][1]
             chunks.append(Chunk(
                 call_id=call_id, channel=ch, speaker=speaker,
-                start=start, end=end,
+                start=group[0][1].start, end=group[-1][1].end,
                 text=" ".join(s.text for _, s in group).strip(),
                 segment_indices=[i for i, _ in group],
-                speech_spans=spans,
             ))
 
     # annotate overlap; clip_duration / silence_ratio / chars_per_sec are filled
-    # in the pipeline once the clip is rendered from speech_spans.
+    # in the pipeline once the clip is rendered (and edge-trimmed).
     for c in chunks:
         c.has_overlap = any(segments[i].overlap for i in c.segment_indices)
         c.overlap_fraction = _overlap_fraction(c, segments)
@@ -95,21 +87,6 @@ def _group_speaker_turns(items, cfg: Config) -> list[list[tuple[int, Segment]]]:
     if cur:
         groups.append(cur)
     return groups
-
-
-def _vad_spans(regions, group, cfg: Config) -> list[tuple[float, float]]:
-    """Intersect the group's coarse window with VAD speech regions on the
-    speaker's channel. Falls back to the raw window when VAD is unavailable or
-    finds nothing (so silent/synthetic audio still yields a chunk)."""
-    g0 = group[0][1].start
-    g1 = group[-1][1].end
-    if not regions:
-        return [(g0, g1)]
-    pad = cfg.chunk.vad_pad_s
-    lo, hi = g0 - pad, g1 + pad
-    spans = [(max(s, lo), min(e, hi)) for s, e in regions
-             if e > lo and s < hi and min(e, hi) > max(s, lo)]
-    return spans or [(g0, g1)]
 
 
 def _overlap_fraction(chunk: Chunk, segments: list[Segment]) -> float:

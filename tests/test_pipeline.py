@@ -68,33 +68,36 @@ def test_persian_char_ratio():
     assert persian_char_ratio("hello world") < 0.1
 
 
-def test_vad_spans_trim_coarse_window_to_speech():
-    # coarse group spans 0..7s, but real speech (VAD) is only 5.5..6.5s
-    cfg = Config()
-    group = [(0, Segment(0.0, 7.0, "متن", "Customer"))]
-    regions = [(5.5, 6.5)]
-    spans = chunking._vad_spans(regions, group, cfg)
-    assert len(spans) == 1
-    s, e = spans[0]
-    assert abs(s - 5.5) < 1e-6 and abs(e - 6.5) < 1e-6  # trimmed to actual speech
-
-
-def test_vad_spans_fall_back_to_window_when_no_speech():
-    cfg = Config()
-    group = [(0, Segment(0.0, 7.0, "متن", "Customer"))]
-    assert chunking._vad_spans([], group, cfg) == [(0.0, 7.0)]      # no VAD -> raw window
-    assert chunking._vad_spans([(50.0, 51.0)], group, cfg) == [(0.0, 7.0)]  # no overlap
-
-
-def test_slice_spans_collapses_dead_air():
+def test_trim_silence_edges_keeps_internal_audio():
     sr = 16000
-    chans = np.zeros((2, sr * 20), dtype=np.float32)
-    chans[1, 1 * sr:2 * sr] = 0.5     # 1s of speech
-    chans[1, 15 * sr:16 * sr] = 0.5   # another 1s, 13s later
-    spans = [(1.0, 2.0), (15.0, 16.0)]
-    clip = io.slice_spans(chans, 1, sr, spans, edge_pad_s=0.0, max_gap_s=0.5)
-    # ~2s speech + capped 0.5s gap, NOT the full 15s extent
-    assert 2.0 < len(clip) / sr < 3.5
+    # 10s clip: silence | speech(2-3s) | silence | speech(6-7s) | silence
+    x = np.zeros(sr * 10, dtype=np.float32)
+    x[2 * sr:3 * sr] = 0.5
+    x[6 * sr:7 * sr] = 0.5
+    out = io.trim_silence_edges(x, sr, margin_s=0.2)
+    dur = len(out) / sr
+    # leading 0-1.8s and trailing 7.2-10s trimmed; internal silence (3-6s) KEPT
+    assert 4.8 < dur < 5.6, dur
+
+
+def test_trim_silence_edges_noop_when_all_silent():
+    sr = 16000
+    x = np.zeros(sr * 3, dtype=np.float32)
+    out = io.trim_silence_edges(x, sr)
+    assert len(out) == len(x)   # never nuke a clip we can't analyse
+
+
+def test_no_min_duration_drop_keeps_short_turns():
+    # a lone 1s turn must still produce a chunk (filtered later on real speech)
+    cfg = Config()
+    segs = [Segment(0.0, 1.0, "بله", "Expert")]
+    chunks = chunking.build_chunks("c1", segs, np.zeros((2, sr_const()), np.float32),
+                                   16000, {"Expert": 1}, cfg)
+    assert len(chunks) == 1 and chunks[0].text == "بله"
+
+
+def sr_const():
+    return int(40 * 16000)
 
 
 def test_channel_mapping_by_energy():

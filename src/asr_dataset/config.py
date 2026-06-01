@@ -18,16 +18,15 @@ class AudioConfig:
 
 @dataclass
 class ChunkConfig:
-    min_s: float = 1.0               # floor on ACTUAL speech (VAD), not the padded window
+    min_s: float = 1.0               # floor on the (edge-trimmed) clip duration
     max_s: float = 28.0              # ceiling: ~2s headroom under Whisper's 30s window
     target_mean_s: float = 12.0
     silence_cut_min_s: float = 0.30  # only cut at silences >= this
     merge_gap_max_s: float = 1.5     # merge same-speaker turns if gap below this
-    # VAD grounding: Gemini timestamps are coarse (rounded ~1s), so we snap chunk
-    # boundaries to real speech on the speaker's channel and collapse the dead air.
-    use_vad_boundaries: bool = True
-    vad_pad_s: float = 0.5           # tolerance around coarse boundaries when matching VAD
-    max_internal_silence_s: float = 0.5   # cap dead air kept between speech regions
+    # Coarse timestamps pad turns with silence; trim ONLY the leading/trailing
+    # silence (never internal audio, never into neighbours) so words aren't lost.
+    trim_silence_edges: bool = True
+    trim_margin_s: float = 0.2       # keep this much silence around the speech
     # target length distribution (for the stats report, not a hard constraint)
     long_band: tuple[float, float] = (18.0, 28.0)   # keep ~30% here for long-form recall
     mid_band: tuple[float, float] = (8.0, 18.0)     # ~60%
@@ -58,7 +57,7 @@ class ConfidenceConfig:
 @dataclass
 class FilterConfig:
     require_audio_quality_good: bool = False   # JSON has audio_quality; gate optionally
-    max_silence_ratio: float = 0.55
+    max_silence_ratio: float = 0.75            # after edge-trim; internal pauses are fine
     cps_min: float = 3.0             # chars/sec lower bound (Persian; tune on your data)
     cps_max: float = 28.0            # upper bound catches hallucination / misalignment
     min_persian_char_ratio: float = 0.55       # language sanity check

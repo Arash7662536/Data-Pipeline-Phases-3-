@@ -48,12 +48,8 @@ class Chunk:
     text: str
     segment_indices: list[int] = field(default_factory=list)
 
-    # VAD-refined speech regions (absolute seconds on `channel`) that make up the
-    # rendered clip. Coarse diarization windows get trimmed/compressed to these.
-    speech_spans: list[tuple[float, float]] = field(default_factory=list)
-
     # populated by later stages
-    clip_duration: Optional[float] = None   # length of the rendered clip (silence collapsed)
+    clip_duration: Optional[float] = None   # length of rendered clip after edge-trim
     has_overlap: bool = False
     overlap_fraction: float = 0.0
     silence_ratio: Optional[float] = None
