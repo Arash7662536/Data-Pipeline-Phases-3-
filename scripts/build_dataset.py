@@ -26,9 +26,17 @@ from asr_dataset.pipeline import process_corpus
 def find_pairs(corpus: Path) -> list[tuple[str, str]]:
     pairs = []
     for jp in sorted(corpus.rglob("*.json")):
+        # Case 1: same-basename .wav (CALL123.json + CALL123.wav)
         wp = jp.with_suffix(".wav")
         if wp.exists():
             pairs.append((str(jp), str(wp)))
+            continue
+        # Case 2: report.json + <any>.wav in the same directory
+        siblings = list(jp.parent.glob("*.wav"))
+        if len(siblings) == 1:
+            pairs.append((str(jp), str(siblings[0])))
+        elif len(siblings) > 1:
+            print(f"  [skip] multiple wavs in {jp.parent}, ambiguous", file=sys.stderr)
         else:
             print(f"  [skip] no wav for {jp.name}", file=sys.stderr)
     return pairs
