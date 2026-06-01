@@ -39,13 +39,21 @@ def normalize_fa(text: str) -> str:
 
 
 def persian_char_ratio(text: str) -> float:
+    """In-language ratio for a sanity check against Latin/garbage text. Digits
+    count as in-language so numeric Persian utterances (phone numbers, order IDs,
+    codes) \u2014 common and valuable in call-center audio \u2014 aren't rejected."""
     if not text:
         return 0.0
-    letters = [c for c in text if c.isalpha()]
-    if not letters:
-        return 0.0
-    fa = sum(1 for c in letters if "\u0600" <= c <= "\u06FF")
-    return fa / len(letters)
+    fa = total = 0
+    for c in text:
+        if c.isalpha():
+            total += 1
+            if "\u0600" <= c <= "\u06FF":
+                fa += 1
+        elif c.isdigit():       # Persian / Arabic / ASCII digits -> in-language
+            total += 1
+            fa += 1
+    return fa / total if total else 0.0
 
 
 def agreement_score(reference: str, hypothesis: Optional[str]) -> Optional[float]:

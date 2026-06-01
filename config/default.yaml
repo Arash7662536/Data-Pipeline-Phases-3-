@@ -16,6 +16,10 @@ chunk:
   # (never internal audio, never into neighbours) so no words are lost.
   trim_silence_edges: true
   trim_margin_s: 0.2     # silence kept around the speech
+  # Cut a turn window at long internal silence (other speaker / hold) and attach
+  # each transcript turn to the speech it overlaps — stops gluing words onto dead air.
+  split_long_silence: true
+  split_silence_s: 1.2   # internal silence >= this starts a new piece
 
 overlap:
   keep: true              # channel split makes the target speaker dominant
@@ -33,7 +37,7 @@ confidence:
 
 filt:
   require_audio_quality_good: false
-  max_silence_ratio: 0.75    # after edge-trim; internal pauses are fine
+  max_silence_ratio: 0.6     # backstop; splitting handles most dead air
   cps_min: 3.0
   cps_max: 28.0
   min_persian_char_ratio: 0.55
@@ -46,7 +50,7 @@ split:
 
 second_asr:
   enabled: true
-  model_id: "openai/whisper-large-v3"   # <-- POINT THIS AT YOUR FARSI CHECKPOINT
+  model_id: "checkpoint-30000"   # <-- POINT THIS AT YOUR FARSI CHECKPOINT
   device: "cuda"
   language: "fa"
   batch_size: 8

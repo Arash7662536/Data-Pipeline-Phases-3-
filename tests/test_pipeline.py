@@ -66,6 +66,8 @@ def test_agreement_perfect_and_partial():
 def test_persian_char_ratio():
     assert persian_char_ratio("سلام دنیا") > 0.9
     assert persian_char_ratio("hello world") < 0.1
+    assert persian_char_ratio("۱۰۱ ۳۴") > 0.9      # numeric Persian -> in-language
+    assert persian_char_ratio("سلام ۱۲۳") > 0.9
 
 
 def test_trim_silence_edges_keeps_internal_audio():

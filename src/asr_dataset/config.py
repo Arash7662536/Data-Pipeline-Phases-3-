@@ -27,6 +27,11 @@ class ChunkConfig:
     # silence (never internal audio, never into neighbours) so words aren't lost.
     trim_silence_edges: bool = True
     trim_margin_s: float = 0.2       # keep this much silence around the speech
+    # Cut a turn window at long internal silence (other speaker / hold) and attach
+    # each transcript turn to the speech it overlaps. Stops gluing words onto dead
+    # air when a turn's audio drifts out of its (coarse) labeled window.
+    split_long_silence: bool = True
+    split_silence_s: float = 1.2     # internal silence >= this starts a new piece
     # target length distribution (for the stats report, not a hard constraint)
     long_band: tuple[float, float] = (18.0, 28.0)   # keep ~30% here for long-form recall
     mid_band: tuple[float, float] = (8.0, 18.0)     # ~60%
@@ -57,7 +62,7 @@ class ConfidenceConfig:
 @dataclass
 class FilterConfig:
     require_audio_quality_good: bool = False   # JSON has audio_quality; gate optionally
-    max_silence_ratio: float = 0.75            # after edge-trim; internal pauses are fine
+    max_silence_ratio: float = 0.6             # backstop; splitting handles most dead air
     cps_min: float = 3.0             # chars/sec lower bound (Persian; tune on your data)
     cps_max: float = 28.0            # upper bound catches hallucination / misalignment
     min_persian_char_ratio: float = 0.55       # language sanity check

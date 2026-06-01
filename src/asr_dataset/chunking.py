@@ -40,17 +40,24 @@ def build_chunks(
             continue
         by_speaker.setdefault(seg.speaker, []).append((i, seg))
 
+    # Speech regions per used channel (once). Used to split a turn window at long
+    # internal silences and trim it to where the speaker is actually talking.
+    channel_speech: dict[int, list[tuple[float, float]]] = {}
+    if cfg.chunk.split_long_silence:
+        for ch in {speaker_channel.get(sp, 0) for sp in by_speaker}:
+            if 0 <= ch < channels.shape[0]:
+                channel_speech[ch] = vad.speech_timestamps(channels[ch], sr)
+
     chunks: list[Chunk] = []
     for speaker, items in by_speaker.items():
         ch = speaker_channel.get(speaker, 0)
         items.sort(key=lambda x: x[1].start)
         for group in _group_speaker_turns(items, cfg):
-            chunks.append(Chunk(
-                call_id=call_id, channel=ch, speaker=speaker,
-                start=group[0][1].start, end=group[-1][1].end,
-                text=" ".join(s.text for _, s in group).strip(),
-                segment_indices=[i for i, _ in group],
-            ))
+            for text, idxs, start, end in _split_group(group, channel_speech.get(ch), cfg):
+                chunks.append(Chunk(
+                    call_id=call_id, channel=ch, speaker=speaker,
+                    start=start, end=end, text=text, segment_indices=idxs,
+                ))
 
     # annotate overlap; clip_duration / silence_ratio / chars_per_sec are filled
     # in the pipeline once the clip is rendered (and edge-trimmed).
@@ -58,6 +65,59 @@ def build_chunks(
         c.has_overlap = any(segments[i].overlap for i in c.segment_indices)
         c.overlap_fraction = _overlap_fraction(c, segments)
     return chunks
+
+
+def _split_group(group, regions, cfg: Config):
+    """Yield (text, seg_idxs, start, end) pieces for one merged group.
+
+    Coarse turn windows can span long internal silence (the other speaker
+    talking, or a hold) that no text covers. We cut the window at silences
+    >= split_silence_s on the speaker's own channel, then attach each transcript
+    turn to the speech cluster it overlaps most. A turn whose audio drifted out
+    of its labeled window lands in a tiny/empty cluster and is caught downstream
+    by the duration / chars-per-sec / silence filters."""
+    g0, g1 = group[0][1].start, group[-1][1].end
+    whole = (" ".join(s.text for _, s in group).strip(), [i for i, _ in group], g0, g1)
+    if not regions or not cfg.chunk.split_long_silence:
+        return [whole]
+
+    inwin = [(max(s, g0), min(e, g1)) for s, e in regions
+             if min(e, g1) > max(s, g0)]
+    if not inwin:
+        return [whole]
+
+    # cluster speech regions separated by < split_silence_s
+    clusters = [[inwin[0]]]
+    for s, e in inwin[1:]:
+        if s - clusters[-1][-1][1] >= cfg.chunk.split_silence_s:
+            clusters.append([(s, e)])
+        else:
+            clusters[-1].append((s, e))
+
+    bounds = [(cl[0][0], cl[-1][1]) for cl in clusters]
+    if len(bounds) == 1:                       # tight: just trim to speech extent
+        return [(whole[0], whole[1], bounds[0][0], bounds[0][1])]
+
+    # assign each turn to the cluster it overlaps most
+    assigned: dict[int, list[tuple[int, Segment]]] = {ci: [] for ci in range(len(bounds))}
+    for i, seg in group:
+        ov = [_overlap(seg.start, seg.end, b0, b1) for b0, b1 in bounds]
+        best = max(range(len(bounds)), key=lambda c: ov[c])
+        if ov[best] > 0:
+            assigned[best].append((i, seg))
+
+    out = []
+    for ci, (b0, b1) in enumerate(bounds):
+        members = assigned[ci]
+        if not members:
+            continue
+        out.append((" ".join(s.text for _, s in members).strip(),
+                    [i for i, _ in members], b0, b1))
+    return out or [whole]
+
+
+def _overlap(a0: float, a1: float, b0: float, b1: float) -> float:
+    return max(0.0, min(a1, b1) - max(a0, b0))
 
 
 def _group_speaker_turns(items, cfg: Config) -> list[list[tuple[int, Segment]]]:
