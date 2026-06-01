@@ -48,16 +48,58 @@ def call_id_of(call: dict, fallback: str = "unknown") -> str:
 
 def load_stereo(path: str | Path, target_sr: int = 16_000) -> tuple[np.ndarray, int]:
     """Return (channels, sr) where channels has shape (n_channels, n_samples).
-    Resamples to target_sr (telephony is usually 8k narrowband -> upsample to 16k)."""
-    import soundfile as sf
+    Resamples to target_sr (telephony is usually 8k narrowband -> upsample to 16k).
 
-    audio, sr = sf.read(str(path), always_2d=True)   # (n_samples, n_channels)
-    audio = audio.T.astype(np.float32)               # (n_channels, n_samples)
+    Falls back to ffmpeg when soundfile can't read the format (μ-law, GSM, etc.).
+    """
+    audio, sr = _sf_read(path)
+    if audio is None:
+        audio, sr = _ffmpeg_read(path)
 
+    audio = audio.T.astype(np.float32)   # (n_channels, n_samples)
     if sr != target_sr:
         audio = _resample(audio, sr, target_sr)
         sr = target_sr
     return audio, sr
+
+
+def _sf_read(path: str | Path):
+    """Try soundfile; return (audio_2d, sr) or (None, None) on failure."""
+    try:
+        import soundfile as sf
+        audio, sr = sf.read(str(path), always_2d=True)
+        return audio, sr
+    except Exception:
+        return None, None
+
+
+def _ffmpeg_read(path: str | Path):
+    """Decode via ffmpeg subprocess — handles μ-law, GSM, MP3, etc."""
+    import subprocess
+    import tempfile, os
+
+    path = str(path)
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", path,
+             "-ar", "16000", "-ac", "2",    # always ask for stereo; mono file → dup channel
+             "-sample_fmt", "s16", tmp_path],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg failed for {path}:\n{result.stderr.decode(errors='replace')}"
+            )
+        import soundfile as sf
+        audio, sr = sf.read(tmp_path, always_2d=True)
+        return audio, sr
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def _resample(audio: np.ndarray, sr: int, target_sr: int) -> np.ndarray:
