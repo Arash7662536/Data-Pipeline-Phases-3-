@@ -163,6 +163,40 @@ def slice_channel(channels: np.ndarray, channel: int, sr: int,
     return channels[channel, a:b].copy()
 
 
+def slice_spans(channels: np.ndarray, channel: int, sr: int,
+                spans: list[tuple[float, float]], edge_pad_s: float = 0.15,
+                max_gap_s: float = 0.5) -> np.ndarray:
+    """Render a clip from VAD speech regions, collapsing dead air.
+
+    Each region's real audio is kept (with edge padding on the outer ends).
+    Gaps between regions are kept as real audio when short, but trimmed to
+    `max_gap_s` total when long — so coarse-timestamp silence and the other
+    speaker's interjections (silent on this channel) don't bloat the clip.
+    """
+    n = channels.shape[1]
+    if not spans:
+        return np.zeros(0, dtype=np.float32)
+
+    parts: list[np.ndarray] = []
+    last = len(spans) - 1
+    for i, (s, e) in enumerate(spans):
+        lead = edge_pad_s if i == 0 else 0.0
+        tail = edge_pad_s if i == last else 0.0
+        a = max(0, int((s - lead) * sr))
+        b = min(n, int((e + tail) * sr))
+        parts.append(channels[channel, a:b])
+        if i < last:
+            nxt = spans[i + 1][0]
+            gap = max(0.0, nxt - e)
+            if gap <= max_gap_s:
+                parts.append(channels[channel, int(e * sr):int(nxt * sr)])
+            else:  # trim the dead middle, keep a natural pause at each side
+                half = max_gap_s / 2.0
+                parts.append(channels[channel, int(e * sr):int((e + half) * sr)])
+                parts.append(channels[channel, int((nxt - half) * sr):int(nxt * sr)])
+    return np.concatenate(parts).astype(np.float32) if parts else np.zeros(0, np.float32)
+
+
 def write_wav(path: str | Path, audio: np.ndarray, sr: int) -> None:
     import soundfile as sf
     Path(path).parent.mkdir(parents=True, exist_ok=True)

@@ -48,9 +48,14 @@ def process_call(
     # render audio, score, and filter each chunk
     safe_id = "".join(c if c.isalnum() else "_" for c in call_id)[:80]
     for k, ch in enumerate(chunks):
-        clip = io.slice_channel(channels, ch.channel, sr, ch.start, ch.end,
-                                pad_s=cfg.audio.edge_pad_s)
-        chunking.fill_silence_ratio(ch, clip, sr)
+        if ch.speech_spans:
+            clip = io.slice_spans(channels, ch.channel, sr, ch.speech_spans,
+                                  edge_pad_s=cfg.audio.edge_pad_s,
+                                  max_gap_s=cfg.chunk.max_internal_silence_s)
+        else:
+            clip = io.slice_channel(channels, ch.channel, sr, ch.start, ch.end,
+                                    pad_s=cfg.audio.edge_pad_s)
+        chunking.fill_clip_metrics(ch, clip, sr)
 
         # cheap filters first (skip scoring on chunks we'll throw away)
         reason = filters.check(ch, cfg, audio_quality=audio_quality)

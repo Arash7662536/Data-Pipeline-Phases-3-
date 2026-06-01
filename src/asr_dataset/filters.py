@@ -17,9 +17,10 @@ def check(chunk: Chunk, cfg: Config, audio_quality: Optional[str] = None) -> Opt
     if len(chunk.text) < f.min_chars:
         return "too_short_text"
 
-    if chunk.duration < cfg.chunk.min_s:
+    dur = chunk.effective_duration
+    if dur < cfg.chunk.min_s:
         return "under_min_duration"
-    if chunk.duration > cfg.chunk.max_s:
+    if dur > cfg.chunk.max_s:
         return "over_max_duration"
 
     if f.require_audio_quality_good and audio_quality and audio_quality != "good":

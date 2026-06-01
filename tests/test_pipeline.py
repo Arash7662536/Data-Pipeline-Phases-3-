@@ -68,6 +68,35 @@ def test_persian_char_ratio():
     assert persian_char_ratio("hello world") < 0.1
 
 
+def test_vad_spans_trim_coarse_window_to_speech():
+    # coarse group spans 0..7s, but real speech (VAD) is only 5.5..6.5s
+    cfg = Config()
+    group = [(0, Segment(0.0, 7.0, "متن", "Customer"))]
+    regions = [(5.5, 6.5)]
+    spans = chunking._vad_spans(regions, group, cfg)
+    assert len(spans) == 1
+    s, e = spans[0]
+    assert abs(s - 5.5) < 1e-6 and abs(e - 6.5) < 1e-6  # trimmed to actual speech
+
+
+def test_vad_spans_fall_back_to_window_when_no_speech():
+    cfg = Config()
+    group = [(0, Segment(0.0, 7.0, "متن", "Customer"))]
+    assert chunking._vad_spans([], group, cfg) == [(0.0, 7.0)]      # no VAD -> raw window
+    assert chunking._vad_spans([(50.0, 51.0)], group, cfg) == [(0.0, 7.0)]  # no overlap
+
+
+def test_slice_spans_collapses_dead_air():
+    sr = 16000
+    chans = np.zeros((2, sr * 20), dtype=np.float32)
+    chans[1, 1 * sr:2 * sr] = 0.5     # 1s of speech
+    chans[1, 15 * sr:16 * sr] = 0.5   # another 1s, 13s later
+    spans = [(1.0, 2.0), (15.0, 16.0)]
+    clip = io.slice_spans(chans, 1, sr, spans, edge_pad_s=0.0, max_gap_s=0.5)
+    # ~2s speech + capped 0.5s gap, NOT the full 15s extent
+    assert 2.0 < len(clip) / sr < 3.5
+
+
 def test_channel_mapping_by_energy():
     sr = 16000
     chans = np.zeros((2, sr * 4), dtype=np.float32)

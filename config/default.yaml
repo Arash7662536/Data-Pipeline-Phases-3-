@@ -7,11 +7,16 @@ audio:
   edge_pad_s: 0.15
 
 chunk:
-  min_s: 3.0
-  max_s: 28.0             # ~2s headroom under Whisper's 30s window
-  target_mean_s: 15.0
+  min_s: 1.0             # floor on ACTUAL speech (VAD), not the silence-padded window
+  max_s: 28.0            # ~2s headroom under Whisper's 30s window
+  target_mean_s: 12.0
   silence_cut_min_s: 0.30
   merge_gap_max_s: 1.5
+  # Gemini timestamps are coarse (~1s rounding). Snap chunk audio to real speech
+  # on the speaker's clean channel and collapse the dead air.
+  use_vad_boundaries: true
+  vad_pad_s: 0.5             # tolerance around coarse boundaries when matching VAD
+  max_internal_silence_s: 0.5  # cap dead air kept between speech regions
 
 overlap:
   keep: true              # channel split makes the target speaker dominant

@@ -18,11 +18,16 @@ class AudioConfig:
 
 @dataclass
 class ChunkConfig:
-    min_s: float = 3.0               # floor
+    min_s: float = 1.0               # floor on ACTUAL speech (VAD), not the padded window
     max_s: float = 28.0              # ceiling: ~2s headroom under Whisper's 30s window
-    target_mean_s: float = 15.0
+    target_mean_s: float = 12.0
     silence_cut_min_s: float = 0.30  # only cut at silences >= this
     merge_gap_max_s: float = 1.5     # merge same-speaker turns if gap below this
+    # VAD grounding: Gemini timestamps are coarse (rounded ~1s), so we snap chunk
+    # boundaries to real speech on the speaker's channel and collapse the dead air.
+    use_vad_boundaries: bool = True
+    vad_pad_s: float = 0.5           # tolerance around coarse boundaries when matching VAD
+    max_internal_silence_s: float = 0.5   # cap dead air kept between speech regions
     # target length distribution (for the stats report, not a hard constraint)
     long_band: tuple[float, float] = (18.0, 28.0)   # keep ~30% here for long-form recall
     mid_band: tuple[float, float] = (8.0, 18.0)     # ~60%

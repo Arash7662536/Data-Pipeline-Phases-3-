@@ -43,12 +43,17 @@ class Chunk:
     call_id: str
     channel: int                     # 0 or 1 (the channel the speaker is dominant on)
     speaker: str
-    start: float
+    start: float                     # real-call extent (first speech .. last speech)
     end: float
     text: str
     segment_indices: list[int] = field(default_factory=list)
 
+    # VAD-refined speech regions (absolute seconds on `channel`) that make up the
+    # rendered clip. Coarse diarization windows get trimmed/compressed to these.
+    speech_spans: list[tuple[float, float]] = field(default_factory=list)
+
     # populated by later stages
+    clip_duration: Optional[float] = None   # length of the rendered clip (silence collapsed)
     has_overlap: bool = False
     overlap_fraction: float = 0.0
     silence_ratio: Optional[float] = None
@@ -69,7 +74,14 @@ class Chunk:
     def duration(self) -> float:
         return max(0.0, self.end - self.start)
 
+    @property
+    def effective_duration(self) -> float:
+        """Length used by filters/scoring: the rendered clip (silence collapsed)
+        when available, else the raw extent."""
+        return self.clip_duration if self.clip_duration is not None else self.duration
+
     def to_record(self) -> dict:
         d = asdict(self)
-        d["duration"] = round(self.duration, 3)
+        d["duration"] = round(self.effective_duration, 3)
+        d["extent"] = [round(self.start, 3), round(self.end, 3)]
         return d
