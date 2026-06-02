@@ -50,7 +50,7 @@ split:
 
 second_asr:
   enabled: true
-  model_id: "checkpoint-30000"   # <-- POINT THIS AT YOUR FARSI CHECKPOINT
+  model_id: "checkpoint-35000"   # <-- POINT THIS AT YOUR FARSI CHECKPOINT
   device: "cuda"
   language: "fa"
   batch_size: 8
