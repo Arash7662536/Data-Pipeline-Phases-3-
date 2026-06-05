@@ -89,9 +89,11 @@ def _ffmpeg_read(path: str | Path):
             capture_output=True,
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                f"ffmpeg failed for {path}:\n{result.stderr.decode(errors='replace')}"
-            )
+            stderr_lines = result.stderr.decode(errors="replace").splitlines()
+            # drop the version banner; keep only the error lines at the end
+            error_lines = [l for l in stderr_lines if l.startswith("Error") or "Invalid" in l]
+            brief = "\n".join(error_lines) if error_lines else "\n".join(stderr_lines[-3:])
+            raise RuntimeError(f"ffmpeg failed for {path}: {brief}")
         import soundfile as sf
         audio, sr = sf.read(tmp_path, always_2d=True)
         return audio, sr

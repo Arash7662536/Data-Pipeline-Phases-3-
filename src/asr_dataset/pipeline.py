@@ -33,7 +33,9 @@ def process_call(
 ) -> CallResult:
     call = io.load_call_json(json_path)
     segments = io.extract_segments(call)
-    call_id = io.call_id_of(call, fallback=Path(json_path).stem)
+    # Fall back to the WAV stem (unique ULID), not the JSON stem — some corpora
+    # name every file report.json, which would collide all calls onto one id.
+    call_id = io.call_id_of(call, fallback=Path(wav_path).stem)
     audio_quality = (call.get("raw_response", {}) or {}).get("audio_quality")
 
     res = CallResult(call_id=call_id)
@@ -94,11 +96,19 @@ def process_corpus(
 
     all_kept: list[Chunk] = []
     rejected_counts: dict[str, int] = {}
-    for json_path, wav_path in pairs:
-        r = process_call(json_path, wav_path, cfg, aligner, second, audio_dir)
+    skipped_calls: list[str] = []
+    for i, (json_path, wav_path) in enumerate(pairs):
+        try:
+            r = process_call(json_path, wav_path, cfg, aligner, second, audio_dir)
+        except Exception as exc:
+            print(f"  [skip] {wav_path}: {exc}", file=__import__("sys").stderr)
+            skipped_calls.append(wav_path)
+            continue
         all_kept.extend(r.kept)
         for _, reason in r.rejected:
             rejected_counts[reason] = rejected_counts.get(reason, 0) + 1
+        if (i + 1) % 25 == 0:
+            print(f"  {i + 1}/{len(pairs)} calls -> {len(all_kept)} chunks")
 
     capped = manifest.enforce_overlap_cap(all_kept, cfg)
     split = manifest.split_by_call(capped, cfg)
@@ -112,8 +122,18 @@ def process_corpus(
     review = [c.to_record() for c in capped if c.tier == "review"]
     n_review = manifest.write_jsonl(review, out_dir / "review_queue.jsonl")
 
+    skipped_path = out_dir / "skipped_calls.txt"
+    skipped_path.write_text("\n".join(skipped_calls) + ("\n" if skipped_calls else ""), encoding="utf-8")
+    if skipped_calls:
+        import sys
+        print(f"\n--- skipped {len(skipped_calls)} unreadable call(s) ---", file=sys.stderr)
+        for p in skipped_calls:
+            print(f"  {p}", file=sys.stderr)
+        print(f"full list written to {skipped_path}", file=sys.stderr)
+
     return {
         "calls": len(pairs),
+        "calls_skipped": len(skipped_calls),
         "chunks_kept": len(all_kept),
         "after_overlap_cap": len(capped),
         "train": n_train,

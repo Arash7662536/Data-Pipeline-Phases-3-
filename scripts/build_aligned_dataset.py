@@ -68,11 +68,13 @@ def main():
     all_chunks = []
     tier_counts: dict[str, int] = {}
     dropped_short = 0
+    skipped: list[tuple[str, str]] = []  # (wav_path, reason)
     for n, (jp, wp) in enumerate(pairs, 1):
         try:
             chunks = process_call_aligned(jp, wp, cfg, aligner, audio_dir, prep_dir)
         except Exception as e:
             print(f"  [error] {Path(jp).name}: {e}", file=sys.stderr)
+            skipped.append((wp, str(e)))
             continue
         for c in chunks:
             if c.effective_duration < cfg.chunk.min_s:
@@ -97,6 +99,17 @@ def main():
     n_test = manifest.write_jsonl(test_records, out_dir / "test.jsonl")
     n_review = manifest.write_jsonl(review, out_dir / "review_queue.jsonl")
 
+    skipped_path = out_dir / "skipped_calls.txt"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    skipped_path.write_text(
+        "".join(f"{wp}\t{reason}\n" for wp, reason in skipped), encoding="utf-8"
+    )
+    if skipped:
+        print(f"\n--- skipped {len(skipped)} unreadable call(s) ---", file=sys.stderr)
+        for wp, reason in skipped:
+            print(f"  {wp}  ({reason})", file=sys.stderr)
+        print(f"full list written to {skipped_path}", file=sys.stderr)
+
     # quick listen-check sidecar: audio_path <tab> tier(conf) <tab> text
     lines = [f"{c.audio_path}\t{c.tier}({(c.confidence or 0):.2f})\t{c.text}"
              for c in all_chunks if c.audio_path]
@@ -104,6 +117,7 @@ def main():
 
     stats = {
         "calls": len(pairs),
+        "calls_skipped": len(skipped),
         "chunks": len(all_chunks),
         "dropped_short": dropped_short,
         "train": n_train,

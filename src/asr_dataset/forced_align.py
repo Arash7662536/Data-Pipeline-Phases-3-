@@ -135,7 +135,9 @@ def prepare_channels(json_path, wav_path, cfg: Config, prep_dir: Optional[Path] 
     writes the 2 channel wavs + 2 txt files as artifacts."""
     call = io.load_call_json(json_path)
     segments = io.extract_segments(call)
-    call_id = io.call_id_of(call, fallback=Path(json_path).stem)
+    # Fall back to the WAV stem (a unique ULID), not the JSON stem: in some
+    # corpora every file is named report.json, so the JSON stem collides.
+    call_id = io.call_id_of(call, fallback=Path(wav_path).stem)
     if not segments:
         return call_id, [], None, 0
 
